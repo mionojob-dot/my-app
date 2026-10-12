@@ -15,7 +15,9 @@ import {
   yen,
   type ForecastSettings,
   type GradeSetting,
+  ymKey,
 } from "@/lib/forecast";
+import { ActualsGrid } from "./actuals-grid";
 import { NumberInput } from "./number-input";
 import { RevenueChart } from "./revenue-chart";
 
@@ -49,6 +51,8 @@ export default function ForecastPage() {
   const achievement = settings.target > 0 ? (base.total / settings.target) * 100 : null;
   const gap = base.total - settings.target;
   const seasonSum = sum(settings.seasonality);
+  const hasActual = (year: number, month: number) =>
+    Object.values(settings.actuals).some((v) => v[ymKey(year, month)]?.some((x) => x !== null));
 
   return (
     <main className="flex-1 flex flex-col items-center pb-16">
@@ -121,6 +125,8 @@ export default function ForecastPage() {
           </div>
         </section>
 
+        <ActualsGrid months={months} actuals={settings.actuals} onChange={(actuals) => update({ actuals })} />
+
         <section className="rounded-2xl bg-white p-4 shadow-sm">
           <h2 className="mb-3 font-bold">月別の売上予測</h2>
           <RevenueChart months={months} monthlyTarget={settings.target / 12} />
@@ -148,6 +154,9 @@ export default function ForecastPage() {
                   <tr key={`${m.year}-${m.month}`} className="border-b border-gray-100">
                     <td className="py-1 whitespace-nowrap">
                       {m.year}/{m.month}
+                      {hasActual(m.year, m.month) && (
+                        <span className="ml-1 rounded bg-blue-50 px-1 text-[10px] text-blue-700">実数</span>
+                      )}
                     </td>
                     <td className="py-1 text-right">{sum(m.students).toFixed(1)}</td>
                     <td className="py-1 text-right">{m.newStudents.toFixed(1)}</td>
@@ -236,7 +245,7 @@ export default function ForecastPage() {
           </div>
         </Card>
 
-        <Card title="料金表と生徒数(学年別)" note="金額は1人あたり・税込で入力。在籍数は開始月の月初時点。">
+        <Card title="料金表と生徒数(学年別)" note="金額は1人あたり・税込で入力。「現在の在籍数」「年間新規見込み」は、月別・学年別の入力が空欄の月を予測するために使います。">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-sm">
               <thead>
@@ -259,7 +268,7 @@ export default function ForecastPage() {
                           value={g[c.key]}
                           onChange={(v) => updateGrade(i, { [c.key]: v })}
                           aria-label={`${GRADES[i]} ${c.label}`}
-                          className={c.key === "startCount" || c.key === "annualNew" ? "bg-blue-50" : ""}
+                          className={c.key === "startCount" || c.key === "annualNew" ? "bg-blue-50" : "bg-white"}
                         />
                       </td>
                     ))}

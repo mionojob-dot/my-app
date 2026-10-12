@@ -28,7 +28,23 @@ export type ForecastSettings = {
   scenarioNewPct: number; // シナリオ幅: 新規入塾数の増減(%)
   scenarioChurnPt: number; // シナリオ幅: 退塾率の増減(pt)
   grades: GradeSetting[];
+  actuals: Actuals;
 };
+
+/** 月×学年の実数入力。キーは "YYYY-MM"、値は学年順の配列(null = 未入力 → 予測で補完) */
+export type MonthGradeValues = Record<string, (number | null)[]>;
+
+export type Actuals = {
+  students: MonthGradeValues; // 在籍数(その月の請求対象人数。新規を含む)
+  newStudents: MonthGradeValues; // 新規入塾数
+  course: MonthGradeValues; // 講習受講者数
+};
+
+export type ActualKind = keyof Actuals;
+
+export const emptyActuals = (): Actuals => ({ students: {}, newStudents: {}, course: {} });
+
+export const ymKey = (year: number, month: number) => `${year}-${String(month).padStart(2, "0")}`;
 
 function grade(
   monthlyFee: number,
@@ -58,6 +74,7 @@ export function defaultSettings(): ForecastSettings {
     seasonality: [6, 12, 16, 10, 5, 6, 14, 4, 8, 7, 6, 6],
     scenarioNewPct: 20,
     scenarioChurnPt: 0.5,
+    actuals: emptyActuals(),
     grades: [
       grade(12_000, 10_000, [5_000, 20_000, 10_000], 1, 2),
       grade(12_000, 10_000, [5_000, 20_000, 10_000], 2, 2),
@@ -75,7 +92,10 @@ export function defaultSettings(): ForecastSettings {
 export type MonthResult = {
   year: number;
   month: number;
+  isCourseMonth: boolean;
   students: number[]; // 学年別の在籍数(その月の請求対象)
+  newByGrade: number[];
+  courseByGrade: number[]; // 学年別の講習受講者数
   newStudents: number;
   tuition: number; // 月謝+管理費
   course: number; // 講習費
@@ -119,8 +139,21 @@ export function simulate(s: ForecastSettings, scenario: Scenario = { newMult: 1,
     }
 
     const weight = weightSum > 0 ? s.seasonality[month - 1] / weightSum : 0;
-    const newByGrade = s.grades.map((g) => g.annualNew * scenario.newMult * weight);
-    counts = counts.map((c, g) => c + newByGrade[g]);
+    const key = ymKey(year, month);
+    const actStudents = s.actuals.students[key];
+    const actNew = s.actuals.newStudents[key];
+    const actCourse = s.actuals.course[key];
+
+    // 実数が入力されていればそれを使い、なければ予測値で補完する
+    const newByGrade = s.grades.map(
+      (g, idx) => actNew?.[idx] ?? g.annualNew * scenario.newMult * weight
+    );
+    counts = counts.map((c, idx) => actStudents?.[idx] ?? c + newByGrade[idx]);
+
+    const isCourseMonth = [s.springMonth, s.summerMonth, s.winterMonth].includes(month);
+    const courseByGrade = counts.map((c, idx) =>
+      isCourseMonth ? actCourse?.[idx] ?? c * courseRate : 0
+    );
 
     let tuition = 0;
     let course = 0;
@@ -130,9 +163,9 @@ export function simulate(s: ForecastSettings, scenario: Scenario = { newMult: 1,
       const c = counts[idx];
       const t = c * (g.monthlyFee + s.adminFee);
       let k = 0;
-      if (month === s.springMonth) k += c * courseRate * g.springFee;
-      if (month === s.summerMonth) k += c * courseRate * g.summerFee;
-      if (month === s.winterMonth) k += c * courseRate * g.winterFee;
+      if (month === s.springMonth) k += courseByGrade[idx] * g.springFee;
+      if (month === s.summerMonth) k += courseByGrade[idx] * g.summerFee;
+      if (month === s.winterMonth) k += courseByGrade[idx] * g.winterFee;
       // 教材費: 新学年の月に在籍者全員、それ以外は新規入塾者のみ
       const m = (isNewYear ? c : newByGrade[idx]) * g.materialFee;
       const e = newByGrade[idx] * s.enrollmentFee;
@@ -146,7 +179,10 @@ export function simulate(s: ForecastSettings, scenario: Scenario = { newMult: 1,
     months.push({
       year,
       month,
+      isCourseMonth,
       students: counts,
+      newByGrade,
+      courseByGrade,
       newStudents: newByGrade.reduce((a, b) => a + b, 0),
       tuition,
       course,
@@ -194,6 +230,7 @@ function load(): ForecastSettings {
     return {
       ...base,
       ...saved,
+      actuals: { ...emptyActuals(), ...saved.actuals },
       seasonality: saved.seasonality?.length === 12 ? saved.seasonality : base.seasonality,
       grades:
         saved.grades?.length === GRADES.length
