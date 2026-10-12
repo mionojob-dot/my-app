@@ -29,10 +29,10 @@ export default function Home() {
           📝 クイズに挑戦する
         </Link>
         <Link
-          href="/ledger"
+          href="/forecast"
           className="rounded-2xl bg-gray-900 px-6 py-5 text-lg font-semibold text-white shadow-md transition hover:bg-gray-700 active:scale-[0.98]"
         >
-          💴 収支計算
+          💴 年間売上シミュレーター
         </Link>
       </div>
     </main>
